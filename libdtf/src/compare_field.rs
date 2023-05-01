@@ -11,8 +11,8 @@ use crate::{
 // Moved here for readability only, because it is a very long match statement
 pub fn compare_field<'a>(
     key: &'a str,
-    a_json_value: &'a JsonValue<Value>,
-    b_json_value: &'a JsonValue<Value>,
+    a_json_value: &JsonValue<Value>,
+    b_json_value: &JsonValue<Value>,
     working_context: &WorkingContext,
 ) -> ComparisionResult {
     // TODO: cleanup

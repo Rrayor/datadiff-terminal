@@ -3,7 +3,7 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use serde_json::Value;
+use crate::get_type;
 
 #[derive(Debug, PartialEq)]
 pub enum ValueType {
@@ -38,10 +38,20 @@ pub enum ArrayDiffDesc {
 }
 
 #[derive(PartialEq, Debug)]
-pub struct JsonValue<'a, T: Display> {
+pub struct JsonValue<'a, T> {
     pub key: String,
     pub value: &'a T,
     pub field_type: ValueType,
+}
+
+impl<T> JsonValue<'_, T> {
+    fn new(key: String, value: &T) -> JsonValue<'_, T> {
+        JsonValue {
+            key,
+            value,
+            field_type: get_type(value),
+        }
+    }
 }
 
 impl<T: Display> Hash for JsonValue<'_, T> {
