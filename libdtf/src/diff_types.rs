@@ -1,4 +1,9 @@
-use std::fmt;
+use std::{
+    fmt::{self, Display},
+    hash::{Hash, Hasher},
+};
+
+use serde_json::Value;
 
 #[derive(Debug, PartialEq)]
 pub enum ValueType {
@@ -30,6 +35,29 @@ pub enum ArrayDiffDesc {
     AMisses,
     BHas,
     BMisses,
+}
+
+#[derive(PartialEq, Debug)]
+pub struct JsonValue<'a, T: Display> {
+    pub key: String,
+    pub value: &'a T,
+    pub field_type: ValueType,
+}
+
+impl<T: Display> Hash for JsonValue<'_, T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.value.to_string().hash(state);
+    }
+}
+
+impl<T: Display> Display for JsonValue<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "JsonValue {{ key: {}, value: {}, field_type: {} }}",
+            self.key, self.value, self.field_type
+        )
+    }
 }
 
 pub struct WorkingFile {

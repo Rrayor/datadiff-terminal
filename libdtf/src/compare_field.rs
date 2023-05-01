@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 
-use crate::diff_types::{ComparisionResult, WorkingContext};
+use crate::diff_types::{ComparisionResult, JsonValue, WorkingContext};
 use crate::{
     compare_arrays, compare_objects, compare_primitives, handle_different_types,
     handle_one_element_null_arrays, handle_one_element_null_objects,
@@ -11,10 +11,13 @@ use crate::{
 // Moved here for readability only, because it is a very long match statement
 pub fn compare_field<'a>(
     key: &'a str,
-    a_value: &'a Value,
-    b_value: &'a Value,
+    a_json_value: &'a JsonValue<Value>,
+    b_json_value: &'a JsonValue<Value>,
     working_context: &WorkingContext,
 ) -> ComparisionResult {
+    // TODO: cleanup
+    let a_value = a_json_value.value;
+    let b_value = b_json_value.value;
     match (a_value, b_value) {
         // Primitives of same type
         (Value::Null, Value::Null) => (vec![], vec![], vec![], vec![]),
@@ -39,7 +42,7 @@ pub fn compare_field<'a>(
 
         // Composites of same type
         (Value::Array(a_value), Value::Array(b_value)) => {
-            compare_arrays(key, a_value, b_value, working_context)
+            compare_arrays(key, a_json_value, b_json_value, working_context)
         }
         (Value::Object(a_value), Value::Object(b_value)) => {
             compare_objects(key, a_value, b_value, working_context)

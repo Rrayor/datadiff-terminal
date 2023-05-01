@@ -9,8 +9,8 @@ pub mod diff_types;
 
 use compare_field::compare_field;
 use diff_types::{
-    ArrayDiff, ArrayDiffDesc, ComparisionResult, KeyDiff, TypeDiff, ValueDiff, ValueType,
-    WorkingContext,
+    ArrayDiff, ArrayDiffDesc, ComparisionResult, JsonValue, KeyDiff, TypeDiff, ValueDiff,
+    ValueType, WorkingContext,
 };
 
 pub fn read_json_file(file_path: &str) -> Result<Map<String, Value>> {
@@ -22,7 +22,7 @@ pub fn read_json_file(file_path: &str) -> Result<Map<String, Value>> {
 
 pub fn compare_objects<'a>(
     key_in: &'a str,
-    a: &'a Map<String, Value>,
+    a: &'a Map<String, Value>, // TODO: can I make it JsonValue?
     b: &'a Map<String, Value>,
     working_context: &WorkingContext,
 ) -> ComparisionResult {
@@ -49,12 +49,24 @@ pub fn compare_objects<'a>(
             // remove the key from `b_keys` if it is in `b`
             b_keys.remove(a_key);
 
+            let a_json_value = JsonValue {
+                key,
+                value: a_value,
+                field_type: get_type(a_value),
+            };
+
+            let b_json_value = JsonValue {
+                key,
+                value: b_value,
+                field_type: get_type(b_value),
+            };
+
             let (
                 mut field_key_diff,
                 mut field_type_diff,
                 mut field_value_diff,
                 mut field_array_diff,
-            ) = compare_field(key.as_str(), a_value, b_value, working_context);
+            ) = compare_field(key.as_str(), &a_json_value, &b_json_value, working_context);
             {
                 key_diff.append(&mut field_key_diff);
                 type_diff.append(&mut field_type_diff);
@@ -89,8 +101,8 @@ pub fn compare_objects<'a>(
 
 fn compare_arrays<'a>(
     key: &'a str,
-    a: &'a Vec<Value>,
-    b: &'a Vec<Value>,
+    a_json_value: &'a JsonValue<Vec<Value>>,
+    b_json_value: &'a JsonValue<Vec<Value>>,
     working_context: &WorkingContext,
 ) -> ComparisionResult {
     let mut key_diff = vec![];
@@ -99,18 +111,30 @@ fn compare_arrays<'a>(
     let mut array_diff: Vec<ArrayDiff> = vec![];
     let same_order = false; // TODO: this should be configurable
 
+    let a = a_json_value.value;
+    let b = b_json_value.value;
+
     if a.len() == b.len() {
         if same_order {
             for (i, a_item) in a.iter().enumerate() {
+                let item_key = format!("{}[{}]", key.to_string(), i.to_string());
                 let (
                     mut item_key_diff,
                     mut item_type_diff,
                     mut item_value_diff,
                     mut item_array_diff,
                 ) = compare_field(
-                    format!("{}[{}]", key.to_string(), i.to_string()).as_str(),
-                    a_item,
-                    &b[i],
+                    item_key.as_str(),
+                    &JsonValue {
+                        key: item_key,
+                        value: a_item,
+                        field_type: get_type(a_item),
+                    },
+                    &JsonValue {
+                        key: item_key,
+                        value: &b[i],
+                        field_type: get_type(a_item),
+                    },
                     working_context,
                 );
 
@@ -120,18 +144,23 @@ fn compare_arrays<'a>(
                 array_diff.append(&mut item_array_diff);
             }
         } else {
-            array_diff = handle_different_order_arrays(a, b, key.to_string());
+            array_diff =
+                handle_different_order_arrays(&a_json_value, &b_json_value, key.to_string());
         }
     } else {
-        array_diff = handle_different_order_arrays(a, b, key.to_string());
+        array_diff = handle_different_order_arrays(&a_json_value, &b_json_value, key.to_string());
     }
 
     (key_diff, type_diff, value_diff, array_diff)
 }
 
-fn handle_different_order_arrays(a: &[Value], b: &[Value], key: String) -> Vec<ArrayDiff> {
+fn handle_different_order_arrays(
+    a: &JsonValue<Vec<Value>>,
+    b: &JsonValue<Vec<Value>>,
+    key: String,
+) -> Vec<ArrayDiff> {
     let mut array_diff = Vec::new();
-    let (a_has, a_misses, b_has, b_misses) = fill_diff_vectors(a, b);
+    let (a_has, a_misses, b_has, b_misses) = fill_diff_vectors(a.value, b.value);
 
     for (value, desc) in a_has
         .iter()
@@ -354,7 +383,10 @@ mod tests {
 
     use crate::{
         compare_primitives,
-        diff_types::{ArrayDiff, ArrayDiffDesc, TypeDiff, ValueDiff, WorkingContext, WorkingFile},
+        diff_types::{
+            ArrayDiff, ArrayDiffDesc, JsonValue, TypeDiff, ValueDiff, ValueType, WorkingContext,
+            WorkingFile,
+        },
         handle_different_order_arrays, handle_different_types, handle_one_element_null_arrays,
         handle_one_element_null_objects, handle_one_element_null_primitives,
     };
@@ -433,6 +465,18 @@ mod tests {
         let arr_a = json!(vec![1, 2, 3, 4, 5, 6, 7]);
         let arr_b = json!(vec![5, 7, 3, 11, 5, 2, 1]);
 
+        let a_json_value = JsonValue {
+            key: "key".to_string(),
+            value: &arr_a,
+            field_type: ValueType::Array,
+        };
+
+        let b_json_value = JsonValue {
+            key: "key".to_string(),
+            value: &arr_b,
+            field_type: ValueType::Array,
+        };
+
         let expected = vec![
             ArrayDiff {
                 key: "key".to_string(),
@@ -457,7 +501,7 @@ mod tests {
         ];
 
         // act
-        let result = handle_different_order_arrays(&[arr_a], &[arr_b], "key".to_string());
+        let result = handle_different_order_arrays(&a_json_value, &b_json_value, "key".to_string());
 
         println!("{:?}", result);
 
