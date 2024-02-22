@@ -14,7 +14,7 @@ use crate::{
 };
 
 use ::clap::Parser;
-use libdtf::diff_types::{
+use libdtf::json::diff_types::{
     ArrayDiff, Checker, CheckingData, KeyDiff, TypeDiff, ValueDiff, WorkingFile,
 };
 use serde_json::{Map, Value};

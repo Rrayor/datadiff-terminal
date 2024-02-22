@@ -1,12 +1,12 @@
 use std::{error::Error, fmt};
 
-use libdtf::diff_types::{ArrayDiff, Diff, KeyDiff, TypeDiff, ValueDiff};
+use libdtf::json::diff_types::{ArrayDiff, Diff, KeyDiff, TypeDiff, ValueDiff};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use term_table::{row::Row, Table, TableStyle};
 
-pub type LibConfig = libdtf::diff_types::Config;
-pub type LibWorkingContext = libdtf::diff_types::WorkingContext;
+pub type LibConfig = libdtf::json::diff_types::Config;
+pub type LibWorkingContext = libdtf::json::diff_types::WorkingContext;
 
 /// Stores the data required for rendering a table of the differences
 pub struct TableContext<'a> {

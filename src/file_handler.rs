@@ -1,6 +1,6 @@
 use std::{error::Error, fs::File, io::BufReader};
 
-use libdtf::{diff_types::WorkingFile, read_json_file};
+use libdtf::json::{diff_types::WorkingFile, read_json_file};
 
 use crate::dtfterminal_types::{
     Config, ConfigBuilder, DiffCollection, DtfError, LibConfig, LibWorkingContext, SavedConfig,
