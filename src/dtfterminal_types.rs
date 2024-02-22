@@ -1,6 +1,6 @@
 use std::{error::Error, fmt};
 
-use libdtf::json::diff_types::{ArrayDiff, Diff, KeyDiff, TypeDiff, ValueDiff};
+use libdtf::{json::diff_types::{ArrayDiff, Diff, KeyDiff, TypeDiff, ValueDiff}, yaml};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use term_table::{row::Row, Table, TableStyle};
@@ -55,11 +55,31 @@ pub trait TermTable<T: Diff> {
 }
 
 /// The data structure arguments are needed to be stored in
-pub type ParsedArgs = (
-    Option<Map<String, Value>>,
-    Option<Map<String, Value>>,
-    Config,
-);
+pub struct  ParsedArgs {
+    pub json_data1: Option<Map<String, Value>>,
+    pub json_data2: Option<Map<String, Value>>,
+    pub yaml_data1: Option<serde_yaml::Mapping>,
+    pub yaml_data2: Option<serde_yaml::Mapping>,
+    pub config: Config,
+}
+
+impl ParsedArgs {
+    pub fn new(
+        json_data1: Option<Map<String, Value>>,
+        json_data2: Option<Map<String, Value>>,
+        yaml_data1: Option<serde_yaml::Mapping>,
+        yaml_data2: Option<serde_yaml::Mapping>,
+        config: Config,
+    ) -> ParsedArgs {
+        ParsedArgs {
+            json_data1,
+            json_data2,
+            yaml_data1,
+            yaml_data2,
+            config,
+        }
+    }
+}
 
 /// How we move the result of diff checking around
 pub type DiffCollection = (

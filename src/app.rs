@@ -14,17 +14,17 @@ use crate::{
 };
 
 use ::clap::Parser;
-use libdtf::json::diff_types::{
-    ArrayDiff, Checker, CheckingData, KeyDiff, TypeDiff, ValueDiff, WorkingFile,
-};
 use serde_json::{Map, Value};
 
 /// Responsible for the main functionality of the app. Makes sure everything runs in the correct order.
 pub struct App {
-    data1: Option<Map<String, Value>>,
-    data2: Option<Map<String, Value>>,
+    json_data1: Option<Map<String, Value>>,
+    json_data2: Option<Map<String, Value>>,
+    yaml_data1: Option<serde_yaml::Mapping>,
+    yaml_data2: Option<serde_yaml::Mapping>,
     diffs: DiffCollection,
-    context: WorkingContext,
+    json_context: libdtf::json::diff_types::WorkingContext,
+    yaml_context: libdtf::yaml::diff_types::WorkingContext,
     file_handler: FileHandler,
 }
 
@@ -33,12 +33,12 @@ impl App {
     /// 1. Parses the command line arguments
     /// 2. Checks for differences and stores them
     pub fn new() -> App {
-        let (data1, data2, config) = App::parse_args();
-        let mut file_handler = FileHandler::new(config.clone(), None);
-        let (diffs, context) = if config.read_from_file.is_empty() {
+        let parsed_args = App::parse_args();
+        let mut file_handler = FileHandler::new(parsed_args.config.clone(), None);
+        let (diffs, context) = if parsed_args.config.read_from_file.is_empty() {
             (
                 (None, None, None, None),
-                App::create_working_context(&config),
+                App::create_working_context(&parsed_args.config),
             )
         } else {
             file_handler
@@ -47,13 +47,16 @@ impl App {
         };
         let mut app = App {
             diffs,
-            context,
+            json_context: context.lib_working_context.clone(),
+            yaml_context: context.lib_working_context.clone(),
             file_handler,
-            data1,
-            data2,
+            json_data1: parsed_args.json_data1,
+            json_data2: parsed_args.json_data2,
+            yaml_data1: parsed_args.yaml_data1,
+            yaml_data2: parsed_args.yaml_data2,
         };
 
-        app.collect_data(&config);
+        app.collect_data(&parsed_args.config);
 
         app
     }
@@ -75,14 +78,46 @@ impl App {
     fn parse_args() -> ParsedArgs {
         let args = Arguments::parse();
 
-        let (data1, data2) = if args.read_from_file.is_empty() {
-            let data1 = FileHandler::read_json_file(&args.check_files[0])
-                .unwrap_or_else(|_| panic!("Couldn't read file: {}", &args.check_files[0]));
-            let data2 = FileHandler::read_json_file(&args.check_files[1])
-                .unwrap_or_else(|_| panic!("Couldn't read file: {}", &args.check_files[1]));
-            (Some(data1), Some(data2))
+        let (json_data1, json_data2, yaml_data1, yaml_data2) = if args.read_from_file.is_empty() {
+            // TODO: Handle JSON and YAML
+            let mut yaml_data1;
+            let mut yaml_data2;
+
+            let mut json_data1;
+            let mut json_data2;
+
+            if args.check_files[0].ends_with(".yaml") || args.check_files[0].ends_with(".yml") {
+                yaml_data1 = FileHandler::read_yaml_file(&args.check_files[0])
+                    .unwrap_or_else(|_| panic!("Couldn't read file: {}", &args.check_files[0]));
+                yaml_data2 = FileHandler::read_yaml_file(&args.check_files[1])
+                    .unwrap_or_else(|_| panic!("Couldn't read file: {}", &args.check_files[1]));
+            } else {
+                json_data1 = FileHandler::read_json_file(&args.check_files[0])
+                    .unwrap_or_else(|_| panic!("Couldn't read file: {}", &args.check_files[0]));
+                json_data2 = FileHandler::read_json_file(&args.check_files[1])
+                    .unwrap_or_else(|_| panic!("Couldn't read file: {}", &args.check_files[1]));
+            }
+
+
+            (Some(json_data1), Some(json_data2), Some(yaml_data1), Some(yaml_data2))
         } else {
-            (None, None)
+            (None, None, None, None)
+        };
+
+        let file_a = if json_data1.is_some() {
+            Some(args.check_files[0].clone())
+        } else if yaml_data1.is_some() {
+            Some(args.check_files[0].clone())
+        } else {
+            None
+        };
+
+        let file_b = if json_data2.is_some() {
+            Some(args.check_files[1].clone())
+        } else if yaml_data2.is_some() {
+            Some(args.check_files[1].clone())
+        } else {
+            None
         };
 
         let config = ConfigBuilder::new()
@@ -96,12 +131,12 @@ impl App {
             .render_array_diffs(args.array_diffs)
             .read_from_file(args.read_from_file)
             .write_to_file(args.write_to_file)
-            .file_a(data1.clone().map(|_| args.check_files[0].clone()))
-            .file_b(data2.clone().map(|_| args.check_files[1].clone()))
+            .file_a(file_a)
+            .file_b(file_b)
             .array_same_order(args.array_same_order)
             .build();
 
-        (data1, data2, config)
+        ParsedArgs::new(json_data1, json_data2, yaml_data1, yaml_data2, config)
     }
 
     fn collect_data(&mut self, user_config: &Config) {
@@ -117,7 +152,7 @@ impl App {
     }
 
     fn perform_new_check(&self) -> Result<DiffCollection, Box<dyn Error>> {
-        let diffs = self.check_for_diffs(
+        let diffs = self.check_for_json_diffs(
             self.data1
                 .as_ref()
                 .ok_or("Contents of first file are missing")?,
@@ -129,38 +164,79 @@ impl App {
         Ok(diffs)
     }
 
-    fn check_for_diffs(
+    fn check_for_json_diffs(
         &self,
         data1: &Map<String, Value>,
         data2: &Map<String, Value>,
     ) -> DiffCollection {
         let key_diff = if self.context.config.check_for_key_diffs {
-            let mut checking_data: CheckingData<KeyDiff> =
-                CheckingData::new("", data1, data2, &self.context.lib_working_context);
+            let mut checking_data: libdtf::json::diff_types::CheckingData<libdtf::json::diff_types::KeyDiff> =
+                libdtf::json::diff_types::CheckingData::new("", data1, data2, &self.context.lib_working_context);
+            libdtf::json::diff_types::Checker::check(&mut checking_data);
+            Some(libdtf::json::diff_types::Checker::diffs(&checking_data)).cloned()
+        } else {
+            None
+        };
+        let type_diff = if self.context.config.check_for_type_diffs {
+            let mut checking_data: libdtf::json::diff_types::CheckingData<libdtf::json::diff_types::TypeDiff> =
+                libdtf::json::diff_types::CheckingData::new("", data1, data2, &self.context.lib_working_context);
+            libdtf::json::diff_types::Checker::check(&mut checking_data);
+            Some(libdtf::json::diff_types::Checker::diffs(&checking_data)).cloned()
+        } else {
+            None
+        };
+        let value_diff = if self.context.config.check_for_value_diffs {
+            let mut checking_data: libdtf::json::diff_types::CheckingData<libdtf::json::diff_types::ValueDiff> =
+                libdtf::json::diff_types::CheckingData::new("", data1, data2, &self.context.lib_working_context);
+            libdtf::json::diff_types::Checker::check(&mut checking_data);
+            Some(libdtf::json::diff_types::Checker::diffs(&checking_data)).cloned()
+        } else {
+            None
+        };
+        let array_diff = if self.context.config.check_for_array_diffs {
+            let mut checking_data: libdtf::json::diff_types::CheckingData<libdtf::json::diff_types::ArrayDiff> =
+                libdtf::json::diff_types::CheckingData::new("", data1, data2, &self.context.lib_working_context);
+            libdtf::json::diff_types::Checker::check(&mut checking_data);
+            Some(libdtf::json::diff_types::Checker::diffs(&checking_data)).cloned()
+        } else {
+            None
+        };
+
+        (key_diff, type_diff, value_diff, array_diff)
+    }
+
+    fn check_for_yaml_diffs(
+        &self,
+        data1: &serde_yaml::Mapping,
+        data2: &serde_yaml::Mapping,
+    ) -> DiffCollection {
+        let key_diff = if self.context.config.check_for_key_diffs {
+            let mut checking_data: libdtf::yaml::diff_types::CheckingData<libdtf::yaml::diff_types::KeyDiff> =
+                libdtf::yaml::diff_types::CheckingData::new("", data1, data2, &self.context.lib_working_context);
             checking_data.check();
             Some(checking_data.diffs()).cloned()
         } else {
             None
         };
         let type_diff = if self.context.config.check_for_type_diffs {
-            let mut checking_data: CheckingData<TypeDiff> =
-                CheckingData::new("", data1, data2, &self.context.lib_working_context);
+            let mut checking_data: libdtf::yaml::diff_types::CheckingData<libdtf::yaml::diff_types::TypeDiff> =
+                libdtf::yaml::diff_types::CheckingData::new("", data1, data2, &self.context.lib_working_context);
             checking_data.check();
             Some(checking_data.diffs()).cloned()
         } else {
             None
         };
         let value_diff = if self.context.config.check_for_value_diffs {
-            let mut checking_data: CheckingData<ValueDiff> =
-                CheckingData::new("", data1, data2, &self.context.lib_working_context);
+            let mut checking_data: libdtf::yaml::diff_types::CheckingData<libdtf::yaml::diff_types::ValueDiff> =
+                libdtf::yaml::diff_types::CheckingData::new("", data1, data2, &self.context.lib_working_context);
             checking_data.check();
             Some(checking_data.diffs()).cloned()
         } else {
             None
         };
         let array_diff = if self.context.config.check_for_array_diffs {
-            let mut checking_data: CheckingData<ArrayDiff> =
-                CheckingData::new("", data1, data2, &self.context.lib_working_context);
+            let mut checking_data: libdtf::yaml::diff_types::CheckingData<libdtf::yaml::diff_types::ArrayDiff> =
+                libdtf::yaml::diff_types::CheckingData::new("", data1, data2, &self.context.lib_working_context);
             checking_data.check();
             Some(checking_data.diffs()).cloned()
         } else {
